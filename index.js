@@ -88,6 +88,24 @@ async function handleEvent(event) {
       return reply(event, '⚠️ 無法取得本月資料，請稍後再試。');
     }
   }
+    // ==== 今日訂單 彙整查詢 ====
+    if (msg === '今日訂單') {
+      if (orderRecords.length === 0) {
+        return reply(event, '目前還沒有任何訂單喔。');
+      }
+      // 把每筆 orderRecords 轉成文字
+      const lines = orderRecords.map(o => {
+        const detail = o.items
+          .map(i => `${i.name} x${i.qty}($${i.price * i.qty})`)
+          .join(' + ');
+        return `${o.student}【${o.vendor}】：${detail}，共 $${o.total}`;
+      });
+      // 最後加總
+      const sum = orderRecords.reduce((acc, o) => acc + o.total, 0);
+      lines.push(`\n總計：$${sum}`);
+      return reply(event, lines.join('\n'));
+    }
+  
 
   // ==== 1. 設定今日商家 ====
   const vMatch = msg.match(/^今日商家[:：]\s*(.+)$/);
