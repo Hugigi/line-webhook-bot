@@ -1,7 +1,7 @@
 // parsers/yiBoParser.js
 
 // 載入原始 rawYiBo 資料
-const rawYiBo = require('../menus/rawYiBo');
+const raw = require('../src/menus/rawYiBo');
 
 module.exports = {
   /**
