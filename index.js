@@ -62,7 +62,7 @@ app.get('/orders', (req, res) => {
 });
 
 // 6️⃣ 啟動 HTTP Server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 // 🔎 新增一個 Health Check API
 app.get('/health', (req, res) => {
