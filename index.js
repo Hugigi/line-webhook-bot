@@ -67,7 +67,6 @@ const PORT = process.env.PORT;
 // 🔎 新增一個 Health Check API
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
-  console.log("🟢 Health Check 通過");
 });
 
 // 🔎 新增一個 Debug Route 看看 Server 是否正常跑
