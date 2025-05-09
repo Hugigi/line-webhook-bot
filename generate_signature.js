@@ -2,7 +2,7 @@
 const crypto = require('crypto');
 
 // 🔎 設定你的 Channel Secret（確認是 Render 後台的環境變數一致）
-const channelSecret = 'b5e3a1ce94904cf6004630cd5771d9b6';
+const channelSecret = 'bf9d72c88b78ee1f76eff79a3344b0c1e';
 
 // 🔎 設定你要傳送的 body 資料（格式要一模一樣）
 const body = JSON.stringify({

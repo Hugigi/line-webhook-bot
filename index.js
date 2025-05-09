@@ -66,6 +66,7 @@ app.post('/webhook', verifyMiddleware, async (req, res) => {
     }
   }
   console.log('✅ 處理完成並回應 LINE');
+  console.log('✅ /webhook 路由已啟動');
   res.status(200).end();
 });
 
