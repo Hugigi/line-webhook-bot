@@ -80,7 +80,6 @@ const PORT = process.env.PORT;
 
 // 🔎 新增一個 Health Check API
 app.get('/health', (req, res) => {
-  console.log('✅ Health Check 通過');
   res.status(200).send('OK');
 });
 

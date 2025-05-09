@@ -26,3 +26,5 @@ const signature = crypto
 // 🔎 顯示結果
 console.log("📝 生成的 X-Line-Signature 是：", signature);
 console.log("📝 生成的 Body 是：", body);
+console.log("🔎 使用的 Secret 是：", process.env.LINE_CHANNEL_SECRET);
+
