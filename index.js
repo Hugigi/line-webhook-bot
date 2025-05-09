@@ -78,5 +78,6 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✅ ${tenantId} Bot 啟動，Listening on port ${PORT}`);
+  console.log(`📝 Render 啟動的 Port 是：${PORT}`);
 });
 
