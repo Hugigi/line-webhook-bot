@@ -15,9 +15,11 @@ if (!tenantId) {
   console.error('❌ 請先設定 TENANT_ID');
   process.exit(1);
 }
+
 let config;
 try {
   config = require(path.join(__dirname, 'config', 'tenants', tenantId + '.js'));
+  console.log('✅ 成功載入租戶設定:', config);
 } catch (e) {
   console.error(`❌ 找不到 config/tenants/${tenantId}.js`);
   process.exit(1);
@@ -30,6 +32,13 @@ console.log('[features] 載入功能：', features.map(f => f.name));
 // 3️⃣ 建立 Express
 const app = express();
 app.use(express.json());
+
+// 🔎 測試環境變數是否正確讀取
+console.log('📝 測試環境變數：');
+console.log('LINE_CHANNEL_SECRET:', process.env.LINE_CHANNEL_SECRET);
+console.log('LINE_CHANNEL_ACCESS_TOKEN:', process.env.LINE_CHANNEL_ACCESS_TOKEN);
+console.log('TENANT_ID:', process.env.TENANT_ID);
+console.log('SHEETS_WEBAPP_URL:', process.env.SHEETS_WEBAPP_URL);
 
 // 4️⃣ 建立 /webhook 路由（開發時可先跳過簽章驗證）
 const verifyMiddleware = process.env.NODE_ENV === 'production'
@@ -46,18 +55,23 @@ app.post('/webhook', verifyMiddleware, async (req, res) => {
       for (const feat of features) {
         try {
           const handled = await feat.handle(ev, config);
-          if (handled) break;
+          if (handled) {
+            console.log(`✅ 功能 ${feat.name} 成功執行`);
+            break;
+          }
         } catch (err) {
-          console.error(`❌ Feature ${feat.name} 執行錯誤：`, err);
+          console.error(`❌ Feature ${feat.name} 執行錯誤：`, err.message);
         }
       }
     }
   }
+  console.log('✅ 處理完成並回應 LINE');
   res.status(200).end();
 });
 
 // 5️⃣ 本地 debug：查看 in‐memory 訂單
 app.get('/orders', (req, res) => {
+  console.log('📝 查看訂單記錄');
   res.json(config.orderRecords || []);
 });
 
@@ -66,17 +80,17 @@ const PORT = process.env.PORT;
 
 // 🔎 新增一個 Health Check API
 app.get('/health', (req, res) => {
+  console.log('✅ Health Check 通過');
   res.status(200).send('OK');
 });
 
 // 🔎 新增一個 Debug Route 看看 Server 是否正常跑
 app.get('/', (req, res) => {
   res.status(200).send('Render 伺服器運行正常');
-  console.log("🟢 伺服器根目錄正常");
+  console.log('🟢 伺服器根目錄正常');
 });
 
 app.listen(PORT, () => {
   console.log(`✅ ${tenantId} Bot 啟動，Listening on port ${PORT}`);
   console.log(`📝 Render 啟動的 Port 是：${PORT}`);
 });
-
