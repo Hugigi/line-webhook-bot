@@ -1,6 +1,6 @@
 // src/features/order.js
 /**
- * 功能：下訂單／取消／修改（錯誤時提示、缺失品項回報、成功時簡短回覆）
+ * 功能：下訂單／取消／修改（錯誤時提示、缺失品項回報、成功時簡短回覆並記錄詳細）
  */
 const stringSimilarity = require('string-similarity');
 const yiBoParser       = require('../../parsers/yiBoParser');
@@ -13,11 +13,15 @@ module.exports = {
     const msg = event.message.text.trim();
     console.log('[order] 收到訊息：', msg);
 
-    // 1️⃣ 未設定商家，提醒
+    // 1️⃣ 未設定商家
     if (!config.currentVendor) {
       await reply(event, '⚠️ 請先設定「今日商家：店名」，再進行下單。', config);
       return true;
     }
+
+    // 載入當前商家扁平化菜單
+    const allMenus = loadMenu(config.MENU_PATH);
+    const menuMap  = allMenus[config.currentVendor] || {};
 
     // —— 取消訂單 ——
     if (msg.startsWith('取消訂單：')) {
@@ -29,7 +33,12 @@ module.exports = {
       }
       for (const r of recs) {
         const negItems = r.items.map(i => ({ name: i.name, qty: -i.qty, price: i.price }));
-        await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items: negItems, total: -r.total, date: r.date });
+        await postToSheet(config.SHEETS_WEBAPP_URL, 'order', {
+          student,
+          items: negItems,
+          total: -r.total,
+          date:  r.date
+        });
       }
       config.orderRecords = config.orderRecords.filter(r => r.student !== student);
       await reply(event, `✅ 已取消「${student}」的訂單。`, config);
@@ -44,18 +53,26 @@ module.exports = {
         return true;
       }
       const [, student, body] = m;
+      // 負值抵消
       const recs = config.orderRecords.filter(r => r.student === student);
       for (const r of recs) {
         const negItems = r.items.map(i => ({ name: i.name, qty: -i.qty, price: i.price }));
-        await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items: negItems, total: -r.total, date: r.date });
+        await postToSheet(config.SHEETS_WEBAPP_URL, 'order', {
+          student,
+          items: negItems,
+          total: -r.total,
+          date:  r.date
+        });
       }
       config.orderRecords = config.orderRecords.filter(r => r.student !== student);
 
-      const error = this._detectMissing(student, body, config);
+      // 檢測缺失
+      const error = this._detectMissing(body, menuMap);
       if (error) {
-        await reply(event, error, config);
+        await reply(event, `⚠️ ${student}：${error}`, config);
       } else {
-        this._processLine(student, body, config).catch(e => console.error('[order] 修改後新單錯誤：', e));
+        // 下新單
+        await this._processLine(student, body, config, menuMap);
         await reply(event, '✅ 修改訂單已收到', config);
       }
       return true;
@@ -66,80 +83,73 @@ module.exports = {
     const orders = lines.filter(l => /^(.+?)[:：].+/.test(l));
     if (!orders.length) return false;
 
-    // 2️⃣ 檢查缺失
+    // 檢測缺失
     for (const line of orders) {
       const [, student, body] = line.match(/^(.+?)[:：](.+)$/);
-      const error = this._detectMissing(student.trim(), body.trim(), config);
+      const error = this._detectMissing(body.trim(), menuMap);
       if (error) {
-        await reply(event, error, config);
+        await reply(event, `⚠️ ${student}：${error}`, config);
         return true;
       }
     }
 
-    // 3️⃣ 成功簡短回覆
+    // 成功簡短回覆
     await reply(event, '✅ 訂單已收到', config);
+    // 非同步送後台處理
     for (const line of orders) {
       const [, student, body] = line.match(/^(.+?)[:：](.+)$/);
-      this._processLine(student.trim(), body.trim(), config)
+      this._processLine(student.trim(), body.trim(), config, menuMap)
         .catch(e => console.error('[order] 處理訂單錯誤：', e));
     }
     return true;
   },
 
-  // 檢測缺失品項
-  _detectMissing(student, rest, config) {
+  /**
+   * 檢測缺失品項
+   */
+  _detectMissing(rest, menuMap) {
     const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,，。]*/g, '').trim();
     const parts   = cleaned.split(/[＋+、,，]/).map(p => p.trim()).filter(Boolean);
-    const menus   = loadMenu(config.MENU_PATH);
     const missing = [];
-    for (const raw of parts) {
-      let key = raw;
-      if (menus[config.currentVendor]?.[key]) continue;
+    const names = Object.keys(menuMap);
+    for (const key of parts) {
+      if (menuMap[key] != null) continue;
+      // 益伯特殊解析
       const r = yiBoParser.parse(key);
       if (r.price != null) continue;
-      const { bestMatch } = stringSimilarity.findBestMatch(key, Object.keys(menus[config.currentVendor]||{}));
-      if (bestMatch.rating <= 0.6) missing.push(raw);
+      // 模糊比對
+      const { bestMatch } = stringSimilarity.findBestMatch(key, names);
+      if (bestMatch.rating <= 0.6) missing.push(key);
     }
-    if (missing.length) {
-      return `⚠️ ${student}：找不到 ${missing.join('、')}`;
-    }
-    return null;
+    return missing.length ? `找不到 ${missing.join('、')}` : null;
   },
 
-  // 實際發送至試算表
-  async _processLine(student, rest, config) {
+  /**
+   * 實際發送訂單
+   */
+  async _processLine(student, rest, config, menuMap) {
     const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,，。]*/g, '').trim();
     const parts   = cleaned.split(/[＋+、,，]/).map(p => p.trim()).filter(Boolean);
-    const menus   = loadMenu(config.MENU_PATH);
     const items   = [];
     let total     = 0;
-    for (const raw of parts) {
-      let vendor = config.currentVendor;
-      let key    = raw;
-      const vm = raw.match(/^(.+?)-(.+)$/);
-      if (vm && menus[vm[1].trim()]) { vendor = vm[1].trim(); key = vm[2].trim(); }
-      let qty = 1;
-      const qm = key.match(/(.+?)x(\d+)$/i);
-      if (qm) { key = qm[1]; qty = +qm[2]; }
-      let itemName = key;
-      let price    = null;
-      if (vendor === '益伯') {
-        const r = yiBoParser.parse(key);
+
+    for (const rawKey of parts) {
+      let itemName = rawKey;
+      let price    = menuMap[itemName];
+      // 益伯解析
+      if (config.currentVendor === '益伯' && price == null) {
+        const r = yiBoParser.parse(rawKey);
         if (r.price != null) { itemName = r.itemName; price = r.price; }
       }
-      if (price == null) price = menus[vendor]?.[itemName];
-      if (price == null) {
-        const { bestMatch, bestMatchIndex } = stringSimilarity.findBestMatch(itemName, Object.keys(menus[vendor]||{}));
-        if (bestMatch.rating > 0.6) {
-          itemName = Object.keys(menus[vendor])[bestMatchIndex];
-          price    = menus[vendor][itemName];
-        }
-      }
-      items.push({ name: itemName, qty, price });
-      total += price * qty;
+      // 确保价格
+      price = price != null ? price : 0;
+      items.push({ name: itemName, qty: 1, price });
+      total += price;
     }
+
     const date = new Date().toISOString();
     config.orderRecords.push({ student, items, total, date });
     await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items, total, date });
   }
 };
+
