@@ -10,7 +10,8 @@ module.exports = {
 
     try {
       const res = await axios.get(`${config.SHEETS_WEBAPP_URL}?action=recalc`);
-      if (res.status === 200 && res.data.status === 'ok') {
+      console.log('[recalc] HTTP', res.status, 'data:', res.data);
+      if (res.status === 200) {
         await reply(event, '✅ 已重新計算本月所有資料', config);
       } else {
         await reply(event, '⚠️ 重算本月失敗，請稍後再試', config);
