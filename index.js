@@ -62,16 +62,18 @@ app.use('/webhook', (req, res, next) => {
   console.log('🔎 收到 Webhook 請求：');
   console.log('Headers:', req.headers);
   console.log('X-Line-Signature:', req.headers['x-line-signature']);
-  console.log('Body:', req.body);
+  console.log('🔍 完整的事件內容:', JSON.stringify(req.body, null, 2));
+
   next();
 });
 
 app.post('/webhook', (req, res) => {
   console.log('🟢 強制進入 /webhook POST');
   console.log('Headers:', req.headers);
-  console.log('Body:', req.body);
 
-  // 測試 Middleware 是否有攔截
+  // 🔎 完整印出接收到的內容
+  console.log('🔍 完整的事件內容:', JSON.stringify(req.body, null, 2));
+
   if (req.body.events) {
     console.log('📨 收到事件:', JSON.stringify(req.body.events));
   } else {
@@ -112,6 +114,7 @@ app.post('/webhook', (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
 
 
 
