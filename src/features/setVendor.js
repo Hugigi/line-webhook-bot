@@ -3,7 +3,7 @@
  * 指令：今日商家：店名
  * 說明：將當日的下單商家設定為「店名」，並清空當天的訂單記憶。
  * 範例：
- *  今日商家：味道食堂
+ *   今日商家：味道食堂
  */
 
 const { reply, loadMenu } = require('../utils');
@@ -12,6 +12,10 @@ module.exports = {
   name: 'setVendor',
   async handle(event, config) {
     const msg = event.message.text.trim();
+    
+    // 如果包含 "菜單"，就不進行商家設定
+    if (msg.includes('菜單')) return false;
+
     const m = msg.match(/^今日商家[:：]\s*(.+)$/);
     if (!m) return false;
 
@@ -26,6 +30,7 @@ module.exports = {
     config.currentVendor  = vendor;
     config.orderRecords   = [];
 
+    console.log(`✅ 今日商家已設定為「${vendor}」`);
     await reply(event, `✅ 今日商家已設定為「${vendor}」`, config);
     return true;
   }
