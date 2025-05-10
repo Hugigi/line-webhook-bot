@@ -15,11 +15,11 @@ module.exports = {
 
     // 1️⃣ 未設定商家
     if (!config.currentVendor) {
-      await reply(event, '⚠️ 請先設定「今日商家：店名」，再進行下單。', config);
+      await reply(event, '⚠️ 請先設定「今日商家：店名」，再進行下訂單。', config);
       return true;
     }
 
-    // 載入當前商家扁平化菜單
+    // 載入扁平化菜單
     const allMenus = loadMenu(config.MENU_PATH);
     const menuMap  = allMenus[config.currentVendor] || {};
 
@@ -53,7 +53,7 @@ module.exports = {
         return true;
       }
       const [, student, body] = m;
-      // 負值抵消
+      // 負值抵消舊單
       const recs = config.orderRecords.filter(r => r.student === student);
       for (const r of recs) {
         const negItems = r.items.map(i => ({ name: i.name, qty: -i.qty, price: i.price }));
@@ -95,7 +95,7 @@ module.exports = {
 
     // 成功簡短回覆
     await reply(event, '✅ 訂單已收到', config);
-    // 非同步送後台處理
+    // 非同步發送詳細訂單
     for (const line of orders) {
       const [, student, body] = line.match(/^(.+?)[:：](.+)$/);
       this._processLine(student.trim(), body.trim(), config, menuMap)
@@ -105,27 +105,29 @@ module.exports = {
   },
 
   /**
-   * 檢測缺失品項
+   * 檢測缺失品項：先精準匹配，再益伯解析，最後模糊比對
    */
   _detectMissing(rest, menuMap) {
     const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,，。]*/g, '').trim();
     const parts   = cleaned.split(/[＋+、,，]/).map(p => p.trim()).filter(Boolean);
     const missing = [];
-    const names = Object.keys(menuMap);
+    const names   = Object.keys(menuMap);
+
     for (const key of parts) {
       if (menuMap[key] != null) continue;
-      // 益伯特殊解析
+      // 益伯特例
       const r = yiBoParser.parse(key);
       if (r.price != null) continue;
       // 模糊比對
       const { bestMatch } = stringSimilarity.findBestMatch(key, names);
       if (bestMatch.rating <= 0.6) missing.push(key);
     }
+
     return missing.length ? `找不到 ${missing.join('、')}` : null;
   },
 
   /**
-   * 實際發送訂單
+   * 真正送出訂單到試算表並記憶
    */
   async _processLine(student, rest, config, menuMap) {
     const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,，。]*/g, '').trim();
@@ -135,13 +137,11 @@ module.exports = {
 
     for (const rawKey of parts) {
       let itemName = rawKey;
-      let price    = menuMap[itemName];
-      // 益伯解析
+      let price    = menuMap[rawKey];
       if (config.currentVendor === '益伯' && price == null) {
         const r = yiBoParser.parse(rawKey);
         if (r.price != null) { itemName = r.itemName; price = r.price; }
       }
-      // 确保价格
       price = price != null ? price : 0;
       items.push({ name: itemName, qty: 1, price });
       total += price;
@@ -152,4 +152,3 @@ module.exports = {
     await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items, total, date });
   }
 };
-
