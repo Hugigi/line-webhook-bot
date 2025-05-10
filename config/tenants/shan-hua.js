@@ -6,7 +6,7 @@ module.exports = {
   SHEETS_WEBAPP_URL:        process.env.SHEETS_WEBAPP_URL,
 
   // 以下不用 env，寫在這裡以後不會動
-  MENU_PATH:       './src/menus/index.js',  // 或 './src/menus/shan-hua.json'
+  MENU_PATH:       './menus',  // 或 './src/menus/shan-hua.json'
   ENABLED_FEATURES: [
     'setVendor',
     'showMenu',
