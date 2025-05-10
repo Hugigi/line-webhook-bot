@@ -52,9 +52,27 @@ const verifyMiddleware = process.env.NODE_ENV === 'production'
     })
   : (req, res, next) => next();
 
-app.post('/webhook', verifyMiddleware, (req, res) => {
+// 📝 測試 Middleware 的 Secret 是否正確讀取
+console.log('🔎 Middleware 驗證參數：');
+console.log('channelSecret:', config.LINE_CHANNEL_SECRET);
+console.log('channelAccessToken:', config.LINE_CHANNEL_ACCESS_TOKEN);
+
+// 📝 增加 Middleware Debug
+app.use('/webhook', (req, res, next) => {
+  console.log('🔎 收到 Webhook 請求：');
+  console.log('Headers:', req.headers);
+  console.log('X-Line-Signature:', req.headers['x-line-signature']);
+  console.log('🔍 完整的事件內容:', JSON.stringify(req.body, null, 2));
+
+  next();
+});
+
+app.post('/webhook', (req, res) => {
   console.log('🟢 強制進入 /webhook POST');
   console.log('Headers:', req.headers);
+
+  // 🔎 完整印出接收到的內容
+  console.log('🔍 完整的事件內容:', JSON.stringify(req.body, null, 2));
 
   if (req.body.events) {
     console.log('📨 收到事件:', JSON.stringify(req.body.events));
@@ -96,6 +114,9 @@ app.post('/webhook', verifyMiddleware, (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+
+
 
 // 7️⃣ 本地 debug：查看 in‐memory 訂單
 app.get('/orders', (req, res) => {
