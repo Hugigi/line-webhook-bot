@@ -20,33 +20,17 @@ async function reply(event, text, config) {
  * postToSheet：將訂單資料傳至 Google Sheets WebApp
  */
 async function postToSheet(webAppUrl, sheetName, payload) {
-  // 增加調試日誌：請求前打印 URL 與 payload
   const url = `${webAppUrl}?sheet=${sheetName}`;
-  console.log('[utils] postToSheet 請求 URL：', url);
-  console.log('[utils] postToSheet 請求 Body：', JSON.stringify(payload));
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
     const text = await res.text();
-    if (!res.ok) {
-      console.error('[utils] postToSheet 錯誤回應：', res.status, text);
-      throw new Error(`postToSheet 錯誤: ${res.status} ${text}`);
-    }
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      data = text;
-    }
-    console.log('[utils] postToSheet 成功回應：', data);
-    return data;
-  } catch (e) {
-    console.error('[utils] postToSheet 執行例外：', e);
-    throw e;
+    throw new Error(`postToSheet 錯誤: ${res.status} ${text}`);
   }
+  return res.json();
 }
 
 /**
@@ -63,17 +47,18 @@ async function fetchOrders(webAppUrl) {
  * @param {string} menuPath — config 裡設定的路徑，支援絕對或相對
  */
 function loadMenu(menuPath) {
-  // 支援絕對或相對路徑，以工作目錄為基準讀取 menus
+  // 支援絕對或相對路徑，解析至 src/menus 目錄
   let fullPath;
   if (path.isAbsolute(menuPath)) {
     fullPath = menuPath;
   } else {
-    fullPath = path.resolve(process.cwd(), menuPath);
+    // 移除前導 './' 或 'src/'，並直接以 __dirname 作為 base
+    const rel = menuPath.replace(/^(?:\.\/)?(?:src[\/])?/, '');
+    fullPath = path.resolve(__dirname, rel);
   }
   console.log('[utils] loadMenu 使用路徑：', fullPath);
   return require(fullPath);
 }
-
 
 module.exports = {
   reply,
