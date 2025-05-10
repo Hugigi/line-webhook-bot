@@ -66,31 +66,46 @@ app.use('/webhook', (req, res, next) => {
   next();
 });
 
-app.post('/webhook', verifyMiddleware, async (req, res) => {
-  console.log('🟢 /webhook 收到 POST 連結');
-  console.log('📨 收到事件:', JSON.stringify(req.body.events));
-  
-  if (!req.body.events) {
-    console.error('❌ 沒有收到 events');
-    return res.status(400).send('No events received');
+app.post('/webhook', (req, res) => {
+  console.log('🟢 強制進入 /webhook POST');
+  console.log('Headers:', req.headers);
+  console.log('Body:', req.body);
+
+  // 測試 Middleware 是否有攔截
+  if (req.body.events) {
+    console.log('📨 收到事件:', JSON.stringify(req.body.events));
+  } else {
+    console.error('❌ events 沒有被接收到');
+    res.status(400).send('No events received');
+    return;
   }
 
-  for (const ev of req.body.events) {
-    if (ev.type === 'message' && ev.message.type === 'text') {
-      console.log(`📝 收到來自 ${ev.source.userId} 的訊息：${ev.message.text}`);
-      for (const feat of features) {
-        try {
-          const handled = await feat.handle(ev, config);
-          if (handled) break;
-        } catch (err) {
-          console.error(`❌ Feature ${feat.name} 執行錯誤：`, err.message);
-          res.status(500).send('Feature execution error');
+  try {
+    for (const ev of req.body.events) {
+      if (ev.type === 'message' && ev.message.type === 'text') {
+        console.log(`📝 收到來自 ${ev.source.userId} 的訊息：${ev.message.text}`);
+        
+        for (const feat of features) {
+          console.log(`⚙️ 嘗試執行功能：${feat.name}`);
+          try {
+            const handled = feat.handle(ev, config);
+            if (handled) {
+              console.log(`✅ 功能 ${feat.name} 成功執行`);
+              break;
+            }
+          } catch (innerErr) {
+            console.error(`❌ Feature ${feat.name} 執行錯誤：`, innerErr.message);
+          }
         }
       }
     }
+    res.status(200).send('Webhook Processed');
+  } catch (err) {
+    console.error('❌ 發生未捕捉的錯誤:', err.message);
+    res.status(500).send('Internal Server Error');
   }
-  res.status(200).send('Webhook Processed');
 });
+
 
 // 7️⃣ 本地 debug：查看 in‐memory 訂單
 app.get('/orders', (req, res) => {
