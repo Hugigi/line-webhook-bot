@@ -54,7 +54,7 @@ function loadMenu(menuPath) {
   } else {
     // 移除前導 './' 或 'src/'，並直接以 __dirname 作為 base
     const rel = menuPath.replace(/^(?:\.\/)?(?:src[\/])?/, '');
-    fullPath = path.resolve(__dirname, rel);
+    fullPath = path.resolve(__dirname, '..', rel);
   }
   console.log('[utils] loadMenu 使用路徑：', fullPath);
   return require(fullPath);
