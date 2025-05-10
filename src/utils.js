@@ -39,10 +39,14 @@ function loadMenu(menuPath) {
   if (path.isAbsolute(menuPath)) {
     fullPath = menuPath;
   } else {
-    // 如果開頭有 "src/", 去除以對應專案結構
-    const rel = menuPath.replace(/^src[\/]/, '');
-    fullPath = path.resolve(__dirname, rel);
+    // 移除可能的開頭 src/ 或 ./src/
+    const rel = menuPath.replace(/^(?:\.\/)?src[\/]/, '');
+    // 往上移一級至第二層 src 目錄
+    fullPath = path.resolve(__dirname, '..', rel);
   }
+  console.log('[utils] loadMenu 使用路徑：', fullPath);
+  return require(fullPath);
+}
   console.log('[utils] loadMenu 使用路徑：', fullPath);
   return require(fullPath);
 }
