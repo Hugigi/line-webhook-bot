@@ -6,17 +6,19 @@ const allFeats = {
   order:       require('./order'),
   dailyReport: require('./dailyReport'),
   queryMonth:  require('./queryMonth'),
+  recalc:      require('./recalc'),
   // 未来新功能再加这里
 };
 
-// **固定顺序**：先设商家 / 看菜单 / 预收 / 下单 / 日报 / 本月查询
+// **固定顺序**：先设商家 / 看菜单 / 预收 / 下单 / 日报 / 本月查询 / 重算
 const loadOrder = [
   'setVendor',
   'showMenu',
   'prepaid',
   'order',
   'dailyReport',
-  'queryMonth'
+  'queryMonth',
+  'recalc' 
 ];
 
 const features = loadOrder
