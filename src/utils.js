@@ -47,14 +47,14 @@ async function fetchOrders(webAppUrl) {
  * @param {string} menuPath — config 裡設定的路徑，支援絕對或相對
  */
 function loadMenu(menuPath) {
+  // 支援絕對或相對路徑，解析至 src/menus 目錄
   let fullPath;
   if (path.isAbsolute(menuPath)) {
     fullPath = menuPath;
   } else {
-    // 移除前導 './' 或 'src/'
+    // 移除前導 './' 或 'src/'，並直接以 __dirname 作為 base
     const rel = menuPath.replace(/^(?:\.\/)?(?:src[\/])?/, '');
-    // 從當前 src/utils.js 所在目錄上升一層，再接 rel
-    fullPath = path.resolve(__dirname, '..', rel);
+    fullPath = path.resolve(__dirname, rel);
   }
   console.log('[utils] loadMenu 使用路徑：', fullPath);
   return require(fullPath);
