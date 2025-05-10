@@ -83,6 +83,13 @@ app.post('/webhook', (req, res) => {
   try {
     for (const ev of req.body.events) {
       if (ev.type === 'message' && ev.message.type === 'text') {
+        
+        // ✅ 增加檢查 ev.source 是否存在
+        if (!ev.source || !ev.source.userId) {
+          console.error('❌ ev.source 或 ev.source.userId 是 undefined');
+          continue;
+        }
+
         console.log(`📝 收到來自 ${ev.source.userId} 的訊息：${ev.message.text}`);
         
         for (const feat of features) {
@@ -105,6 +112,7 @@ app.post('/webhook', (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
 
 
 // 7️⃣ 本地 debug：查看 in‐memory 訂單
