@@ -1,8 +1,7 @@
 // index.js
-// 先印出目前執行的檔案路徑，確定 node 執行到這裡
 console.log('▶️ 執行檔案：', __filename);
 
-// 讀 dotenv
+// 讀取環境變數
 require('dotenv').config({ path: `.env.${process.env.TENANT_ID}` });
 
 const express = require('express');
@@ -15,11 +14,13 @@ if (!tenantId) {
   console.error('❌ 請先設定 TENANT_ID');
   process.exit(1);
 }
+const configPath = path.join(__dirname, 'config', 'tenants', `${tenantId}.js`);
 let config;
 try {
-  config = require(path.join(__dirname, 'config', 'tenants', tenantId + '.js'));
+  config = require(configPath);
+  console.log(`✅ 成功載入租戶設定: ${tenantId}`);
 } catch (e) {
-  console.error(`❌ 找不到 config/tenants/${tenantId}.js`);
+  console.error(`❌ 找不到租戶設定檔: ${configPath}`);
   process.exit(1);
 }
 
@@ -27,11 +28,25 @@ try {
 const features = require('./src/features');
 console.log('[features] 載入功能：', features.map(f => f.name));
 
-// 3️⃣ 建立 Express
+// 3️⃣ 建立 Express 應用，保留 rawBody 供簽名驗證
 const app = express();
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 
-// 4️⃣ 建立 /webhook 路由（開發時可先跳過簽章驗證）
+// 4️⃣ 健康檢查
+app.get('/health', (req, res) => {
+  console.log('🟢 Health Check');
+  res.status(200).send('OK');
+});
+
+// 5️⃣ GET /webhook 測試連線
+app.get('/webhook', (req, res) => {
+  console.log('🟢 GET /webhook');
+  res.status(200).send('Webhook is active');
+});
+
+// 6️⃣ 簽名驗證 Middleware（production 環境才開啟）
 const verifyMiddleware = process.env.NODE_ENV === 'production'
   ? line.middleware({
       channelAccessToken: config.LINE_CHANNEL_ACCESS_TOKEN,
@@ -39,16 +54,21 @@ const verifyMiddleware = process.env.NODE_ENV === 'production'
     })
   : (req, res, next) => next();
 
+// 7️⃣ 處理 Webhook 事件
 app.post('/webhook', verifyMiddleware, async (req, res) => {
-  console.log('📨 收到事件:', JSON.stringify(req.body.events));
-  for (const ev of req.body.events) {
-    if (ev.type === 'message' && ev.message.type === 'text') {
+  const events = Array.isArray(req.body.events) ? req.body.events : [];
+  for (const ev of events) {
+    if (ev.type === 'message' && ev.message.type === 'text' && ev.source && ev.source.userId) {
+      console.log(`📝 收到 ${ev.source.userId} 訊息：${ev.message.text}`);
       for (const feat of features) {
         try {
           const handled = await feat.handle(ev, config);
-          if (handled) break;
+          if (handled) {
+            console.log(`✅ ${feat.name} 完成`);
+            break;
+          }
         } catch (err) {
-          console.error(`❌ Feature ${feat.name} 執行錯誤：`, err);
+          console.error(`❌ ${feat.name} 執行錯誤：`, err);
         }
       }
     }
@@ -56,27 +76,8 @@ app.post('/webhook', verifyMiddleware, async (req, res) => {
   res.status(200).end();
 });
 
-// 5️⃣ 本地 debug：查看 in‐memory 訂單
-app.get('/orders', (req, res) => {
-  res.json(config.orderRecords || []);
-});
-
-// 6️⃣ 啟動 HTTP Server
+// 8️⃣ 啟動 HTTP Server
 const PORT = process.env.PORT || 3000;
-
-// 🔎 新增一個 Health Check API
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
-  console.log("🟢 Health Check 通過");
-});
-
-// 🔎 新增一個 Debug Route 看看 Server 是否正常跑
-app.get('/', (req, res) => {
-  res.status(200).send('Render 伺服器運行正常');
-  console.log("🟢 伺服器根目錄正常");
-});
-
 app.listen(PORT, () => {
   console.log(`✅ ${tenantId} Bot 啟動，Listening on port ${PORT}`);
 });
-
