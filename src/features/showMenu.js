@@ -13,15 +13,12 @@ module.exports = {
   async handle(event, config) {
     const msg = event.message.text.trim();
     const m = msg.match(/^(.+?)的?菜單$/);
-
-    // 檢查是否有符合的菜單指令
     if (!m) return false;
 
     const vendor = m[1].trim();
     const menus  = loadMenu(config.MENU_PATH);
 
     if (!menus[vendor]) {
-      console.log(`⚠️ 找不到商家「${vendor}」的菜單。`);
       await reply(event, `⚠️ 找不到商家「${vendor}」的菜單。`, config);
       return true;
     }
@@ -29,8 +26,6 @@ module.exports = {
     const lines = Object.entries(menus[vendor])
       .map(([name, price]) => `${name}：$${price}`)
       .join('\n');
-
-    console.log(`✅ 顯示 ${vendor} 的菜單：\n${lines}`);
     await reply(event, `「${vendor}」菜單：\n${lines}`, config);
     return true;
   }
