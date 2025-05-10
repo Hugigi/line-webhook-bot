@@ -18,7 +18,7 @@ module.exports = {
 
     if (!m) {
       console.log(`🛑 指令格式錯誤，不進行商家設定`);
-      return false;
+      return false;  // 💡 確認格式錯誤時不應該執行
     }
 
     const vendor = m[1].trim();
@@ -28,7 +28,7 @@ module.exports = {
     if (!menus[vendor]) {
       await reply(event, `⚠️ 找不到商家「${vendor}」，請確認名稱正確。`, config);
       console.log(`⚠️ 找不到商家「${vendor}」，指令忽略`);
-      return true;
+      return false;  // 💡 這裡也改成 false，避免後續處理
     }
 
     // ✅ 設定當日商家（存在共享記憶體）
