@@ -1,12 +1,13 @@
-// index.js
+""// index.js
+console.log('▶️ 執行檔案：', __filename);
+
+// 讀 dotenv
 require('dotenv').config({ path: `.env.${process.env.TENANT_ID}` });
 
 const express = require('express');
 const line    = require('@line/bot-sdk');
 const path    = require('path');
 const axios   = require('axios');
-
-console.log('▶️ 執行檔案：', __filename);
 
 // 1️⃣ 載入租戶設定
 const tenantId = process.env.TENANT_ID;
@@ -34,15 +35,35 @@ app.use(express.json());
 // 4️⃣ 健康檢查
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
+  console.log('🟢 Health Check 成功');
 });
 
-// 5️⃣ 設定 webhook 的 POST
-const verifyMiddleware = line.middleware({
-  channelAccessToken: config.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret:      config.LINE_CHANNEL_SECRET
+// 5️⃣ 測試 webhook 是否真的被綁定
+app.get('/webhook', (req, res) => {
+  console.log('🟢 /webhook 被 GET 連結到了');
+  res.status(200).send('Webhook is active');
 });
 
-app.post('/webhook', verifyMiddleware, async (req, res) => {
+// 6️⃣ 設定 webhook 的 POST
+const verifyMiddleware = process.env.NODE_ENV === 'production'
+  ? line.middleware({
+      channelAccessToken: config.LINE_CHANNEL_ACCESS_TOKEN,
+      channelSecret:      config.LINE_CHANNEL_SECRET
+    })
+  : (req, res, next) => next();
+
+app.post('/webhook', verifyMiddleware, (req, res) => {
+  console.log('🟢 強制進入 /webhook POST');
+  console.log('Headers:', req.headers);
+
+  if (req.body.events) {
+    console.log('📨 收到事件:', JSON.stringify(req.body.events));
+  } else {
+    console.error('❌ events 沒有被接收到');
+    res.status(400).send('No events received');
+    return;
+  }
+
   try {
     for (const ev of req.body.events) {
       if (ev.type === 'message' && ev.message.type === 'text') {
@@ -55,12 +76,10 @@ app.post('/webhook', verifyMiddleware, async (req, res) => {
 
         console.log(`📝 收到來自 ${ev.source.userId} 的訊息：${ev.message.text}`);
         
-        // 📝 嘗試執行所有功能模組
-        let handled = false;
         for (const feat of features) {
           console.log(`⚙️ 嘗試執行功能：${feat.name}`);
           try {
-            handled = await feat.handle(ev, config);
+            const handled = feat.handle(ev, config);
             if (handled) {
               console.log(`✅ 功能 ${feat.name} 成功執行`);
               break;
@@ -68,10 +87,6 @@ app.post('/webhook', verifyMiddleware, async (req, res) => {
           } catch (innerErr) {
             console.error(`❌ Feature ${feat.name} 執行錯誤：`, innerErr.message);
           }
-        }
-
-        if (!handled) {
-          console.log('🛑 無對應功能被執行');
         }
       }
     }
@@ -82,7 +97,13 @@ app.post('/webhook', verifyMiddleware, async (req, res) => {
   }
 });
 
-// 6️⃣ Google Apps Script 測試
+// 7️⃣ 本地 debug：查看 in‐memory 訂單
+app.get('/orders', (req, res) => {
+  console.log('📝 查看訂單記錄');
+  res.json(config.orderRecords || []);
+});
+
+// 8️⃣ Google Apps Script 測試
 app.get('/test-google-apps', async (req, res) => {
   try {
     const response = await axios.get(config.SHEETS_WEBAPP_URL);
@@ -94,8 +115,10 @@ app.get('/test-google-apps', async (req, res) => {
   }
 });
 
-// 7️⃣ 啟動 HTTP Server
+// 9️⃣ 啟動 HTTP Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ ${tenantId} Bot 啟動，Listening on port ${PORT}`);
+  console.log(`📝 Railway 啟動的 Port 是：${PORT}`);
 });
+""
