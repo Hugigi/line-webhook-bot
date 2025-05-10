@@ -73,9 +73,7 @@ function loadMenu(menuPath) {
   console.log('[utils] loadMenu 使用路徑：', fullPath);
   return require(fullPath);
 }
-  console.log('[utils] loadMenu 使用路徑：', fullPath);
-  return require(fullPath);
-}
+
 
 module.exports = {
   reply,
