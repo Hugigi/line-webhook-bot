@@ -12,21 +12,26 @@ module.exports = {
   name: 'setVendor',
   async handle(event, config) {
     const msg = event.message.text.trim();
-    
-    // 如果包含 "菜單"，就不進行商家設定
-    if (msg.includes('菜單')) return false;
 
-    const m = msg.match(/^今日商家[:：]\s*(.+)$/);
-    if (!m) return false;
+    // 🛑 嚴格匹配正確格式「今日商家：XXX」
+    const m = msg.match(/^今日商家[:：][\s]*([^\s]+)$/);
+
+    if (!m) {
+      console.log(`🛑 指令格式錯誤，不進行商家設定`);
+      return false;
+    }
 
     const vendor = m[1].trim();
     const menus  = loadMenu(config.MENU_PATH);
+
+    // 🛑 如果商家名稱不在菜單中，回覆錯誤
     if (!menus[vendor]) {
       await reply(event, `⚠️ 找不到商家「${vendor}」，請確認名稱正確。`, config);
+      console.log(`⚠️ 找不到商家「${vendor}」，指令忽略`);
       return true;
     }
 
-    // 設定當日商家（存在共享記憶體）
+    // ✅ 設定當日商家（存在共享記憶體）
     config.currentVendor  = vendor;
     config.orderRecords   = [];
 
