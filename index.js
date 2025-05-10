@@ -1,5 +1,4 @@
-// index.js
-// 先印出目前執行的檔案路徑，確定 node 執行到這裡
+""// index.js
 console.log('▶️ 執行檔案：', __filename);
 
 // 讀 dotenv
@@ -8,6 +7,7 @@ require('dotenv').config({ path: `.env.${process.env.TENANT_ID}` });
 const express = require('express');
 const line    = require('@line/bot-sdk');
 const path    = require('path');
+const axios   = require('axios');
 
 // 1️⃣ 載入租戶設定
 const tenantId = process.env.TENANT_ID;
@@ -15,11 +15,10 @@ if (!tenantId) {
   console.error('❌ 請先設定 TENANT_ID');
   process.exit(1);
 }
-
 let config;
 try {
   config = require(path.join(__dirname, 'config', 'tenants', tenantId + '.js'));
-  console.log('✅ 成功載入租戶設定:', config);
+  console.log(`✅ 成功載入租戶設定: ${tenantId}`);
 } catch (e) {
   console.error(`❌ 找不到 config/tenants/${tenantId}.js`);
   process.exit(1);
@@ -33,14 +32,19 @@ console.log('[features] 載入功能：', features.map(f => f.name));
 const app = express();
 app.use(express.json());
 
-// 🔎 測試環境變數是否正確讀取
-console.log('📝 測試環境變數：');
-console.log('LINE_CHANNEL_SECRET:', process.env.LINE_CHANNEL_SECRET);
-console.log('LINE_CHANNEL_ACCESS_TOKEN:', process.env.LINE_CHANNEL_ACCESS_TOKEN);
-console.log('TENANT_ID:', process.env.TENANT_ID);
-console.log('SHEETS_WEBAPP_URL:', process.env.SHEETS_WEBAPP_URL);
+// 4️⃣ 健康檢查
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+  console.log('🟢 Health Check 成功');
+});
 
-// 4️⃣ 建立 /webhook 路由（開發時可先跳過簽章驗證）
+// 5️⃣ 測試 webhook 是否真的被綁定
+app.get('/webhook', (req, res) => {
+  console.log('🟢 /webhook 被 GET 連結到了');
+  res.status(200).send('Webhook is active');
+});
+
+// 6️⃣ 設定 webhook 的 POST
 const verifyMiddleware = process.env.NODE_ENV === 'production'
   ? line.middleware({
       channelAccessToken: config.LINE_CHANNEL_ACCESS_TOKEN,
@@ -48,49 +52,68 @@ const verifyMiddleware = process.env.NODE_ENV === 'production'
     })
   : (req, res, next) => next();
 
+// 📝 測試 Middleware 的 Secret 是否正確讀取
+console.log('🔎 Middleware 驗證參數：');
+console.log('channelSecret:', config.LINE_CHANNEL_SECRET);
+console.log('channelAccessToken:', config.LINE_CHANNEL_ACCESS_TOKEN);
+
+// 📝 增加 Middleware Debug
+app.use('/webhook', (req, res, next) => {
+  console.log('🔎 收到 Webhook 請求：');
+  console.log('Headers:', req.headers);
+  console.log('X-Line-Signature:', req.headers['x-line-signature']);
+  console.log('Body:', req.body);
+  next();
+});
+
 app.post('/webhook', verifyMiddleware, async (req, res) => {
+  console.log('🟢 /webhook 收到 POST 連結');
   console.log('📨 收到事件:', JSON.stringify(req.body.events));
+  
+  if (!req.body.events) {
+    console.error('❌ 沒有收到 events');
+    return res.status(400).send('No events received');
+  }
+
   for (const ev of req.body.events) {
     if (ev.type === 'message' && ev.message.type === 'text') {
+      console.log(`📝 收到來自 ${ev.source.userId} 的訊息：${ev.message.text}`);
       for (const feat of features) {
         try {
           const handled = await feat.handle(ev, config);
-          if (handled) {
-            console.log(`✅ 功能 ${feat.name} 成功執行`);
-            break;
-          }
+          if (handled) break;
         } catch (err) {
           console.error(`❌ Feature ${feat.name} 執行錯誤：`, err.message);
+          res.status(500).send('Feature execution error');
         }
       }
     }
   }
-  console.log('✅ 處理完成並回應 LINE');
-  console.log('✅ /webhook 路由已啟動');
-  res.status(200).end();
+  res.status(200).send('Webhook Processed');
 });
 
-// 5️⃣ 本地 debug：查看 in‐memory 訂單
+// 7️⃣ 本地 debug：查看 in‐memory 訂單
 app.get('/orders', (req, res) => {
   console.log('📝 查看訂單記錄');
   res.json(config.orderRecords || []);
 });
 
-// 6️⃣ 啟動 HTTP Server
-const PORT = process.env.PORT;
-
-// 🔎 新增一個 Health Check API
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
+// 8️⃣ Google Apps Script 測試
+app.get('/test-google-apps', async (req, res) => {
+  try {
+    const response = await axios.get(config.SHEETS_WEBAPP_URL);
+    console.log(`🟢 Google Apps Script 成功連接：${response.status}`);
+    res.status(200).send('Google Apps Script 連接成功');
+  } catch (error) {
+    console.error(`❌ Google Apps Script 連接失敗：${error.message}`);
+    res.status(500).send('Google Apps Script 連接失敗');
+  }
 });
 
-// 🔎 新增一個 Debug Route 看看 Server 是否正常跑
-app.get('/', (req, res) => {
-  res.status(200).send('Render 伺服器運行正常');
-  console.log('🟢 伺服器根目錄正常');
-});
-
+// 9️⃣ 啟動 HTTP Server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ ${tenantId} Bot 啟動，Listening on port ${PORT}`);
-  console.log(`📝 Render 啟動的 Port 是：${PORT}`);
+  console.log(`📝 Railway 啟動的 Port 是：${PORT}`);
 });
+""
