@@ -1,4 +1,4 @@
-""/**
+/**
  * 功能：顯示菜單
  * 指令：店名菜單
  * 說明：回傳指定店家的所有品項與價格。
@@ -28,14 +28,10 @@ module.exports = {
 
     const lines = Object.entries(menus[vendor])
       .map(([name, price]) => `${name}：$${price}`)
-      .join('
-');
+      .join('\n');
 
-    console.log(`✅ 顯示 ${vendor} 的菜單：
-${lines}`);
-    await reply(event, `「${vendor}」菜單：
-${lines}`, config);
+    console.log(`✅ 顯示 ${vendor} 的菜單：\n${lines}`);
+    await reply(event, `「${vendor}」菜單：\n${lines}`, config);
     return true;
   }
 };
-""
