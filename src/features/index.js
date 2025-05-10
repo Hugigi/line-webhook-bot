@@ -6,7 +6,7 @@ const allFeats = {
   order:       require('./order'),
   dailyReport: require('./dailyReport'),
   queryMonth:  require('./queryMonth'),
-  recalc:      require('./recalc'),
+  recalc:      require('./recalc')
   // 未来新功能再加这里
 };
 
