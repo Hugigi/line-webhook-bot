@@ -34,10 +34,15 @@ async function fetchOrders() {
  * @param {string} menuPath — config 裡設定的路徑，支援絕對或相對
  */
 function loadMenu(menuPath) {
-  // 若為絕對路徑則直接使用，否則以專案根目錄為基準解析
-  const fullPath = path.isAbsolute(menuPath)
-    ? menuPath
-    : path.resolve(process.cwd(), menuPath);
+  // 支援絕對或相對路徑
+  let fullPath;
+  if (path.isAbsolute(menuPath)) {
+    fullPath = menuPath;
+  } else {
+    // 如果開頭有 "src/", 去除以對應專案結構
+    const rel = menuPath.replace(/^src[\/]/, '');
+    fullPath = path.resolve(__dirname, rel);
+  }
   console.log('[utils] loadMenu 使用路徑：', fullPath);
   return require(fullPath);
 }
