@@ -1,29 +1,31 @@
 // src/features/index.js
-
-const config = require('../../config/tenants');
-
 const allFeats = {
   setVendor:   require('./setVendor'),
   showMenu:    require('./showMenu'),
-  order:       require('./order'),
   prepaid:     require('./prepaid'),
-  queryMonth:  require('./queryMonth'),
+  order:       require('./order'),
   dailyReport: require('./dailyReport'),
-  // 未來要加的功能模組放這裡
+  queryMonth:  require('./queryMonth'),
+  // 未来新功能再加这里
 };
 
-// 根據租戶設定的 ENABLED_FEATURES 陣列，挑出要載入的 modules
-const features = config.ENABLED_FEATURES
+// **固定顺序**：先设商家 / 看菜单 / 预收 / 下单 / 日报 / 本月查询
+const loadOrder = [
+  'setVendor',
+  'showMenu',
+  'prepaid',
+  'order',
+  'dailyReport',
+  'queryMonth'
+];
+
+const features = loadOrder
   .map(name => {
-    const feat = allFeats[name];
-    if (!feat) {
-      console.warn(`⚠️ Feature "${name}" 不存在，請確認 config/tenants/${config.TENANT_ID}.js 裡 ENABLED_FEATURES`);
-    }
-    return feat;
+    const f = allFeats[name];
+    if (!f) console.warn(`⚠️ Feature "${name}" 不存在`);
+    return f;
   })
   .filter(Boolean);
 
-// **在這裡加上 debug log**
-console.log('[features] 載入功能：', features.map(f => f.name));
-
+console.log('[features] 載入功能顺序：', features.map(f => f.name));
 module.exports = features;

@@ -1,8 +1,7 @@
+// src/features/order.js
 /**
- * src/features/order.js
- * 重寫版：下訂單／取消／修改，強化 Debug 與修正 student 欄位
+ * 功能：下訂單／取消／修改（只回覆收到，不顯示細節）
  */
-
 const stringSimilarity = require('string-similarity');
 const yiBoParser       = require('../../parsers/yiBoParser');
 const { reply, postToSheet, loadMenu } = require('../utils');
@@ -14,113 +13,76 @@ module.exports = {
     const msg = event.message.text.trim();
     console.log('[order] 收到訊息：', msg);
 
-    // —— 取消訂單 —— 
-    if (msg.startsWith('取消訂單：')) {
-      console.log('[order] 取消訂單流程啟動');
-      const student = msg.replace(/^取消訂單：/, '').trim();
-      console.log('[order] 目標學生：', student);
-
-      // 1) snapshot 記憶體訂單
-      const recs = config.orderRecords.filter(r => r.student === student);
-      if (recs.length === 0) {
-        await reply(event, `⚠️ 找不到「${student}」的訂單`, config);
-        return true;
-      }
-
-      // 2) 逐筆 post 負值抵消
-      for (const r of recs) {
-        const negItems = r.items.map(i => ({
-          name:  i.name,
-          qty:   -i.qty,
-          price: i.price
-        }));
-        const negTotal = -r.total;
-        console.log('[order] 發送負值抵消單：', {
-          student,
-          items: negItems,
-          total: negTotal,
-          date:  r.date
-        });
-        await postToSheet(
-          config.SHEETS_WEBAPP_URL,
-          'order',
-          { student, items: negItems, total: negTotal, date: r.date }
-        );
-      }
-
-      // 3) 清除記憶體
-      config.orderRecords = config.orderRecords.filter(r => r.student !== student);
-      console.log('[order] 記憶體中刪除該生所有記錄，新記憶體長度：', config.orderRecords.length);
-
-      await reply(event, `✅ 已取消「${student}」的 ${recs.length} 筆訂單`, config);
+    // 1️⃣ 如果未設定商家，提醒先設定
+    if (!config.currentVendor) {
+      await reply(event, '⚠️ 請先設定「今日商家：店名」，再進行下單。', config);
       return true;
     }
 
-    // —— 修改訂單 —— 
+    // —— 取消訂單 ——
+    if (msg.startsWith('取消訂單：')) {
+      console.log('[order] 取消訂單流程');
+      const student = msg.replace(/^取消訂單：/, '').trim();
+      const recs = config.orderRecords.filter(r => r.student === student);
+      if (!recs.length) {
+        await reply(event, `⚠️ 找不到「${student}」的訂單。`, config);
+        return true;
+      }
+      // 發送負值抵消
+      for (const r of recs) {
+        const negItems = r.items.map(i => ({ name: i.name, qty: -i.qty, price: i.price }));
+        const negTotal = -r.total;
+        await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items: negItems, total: negTotal, date: r.date });
+      }
+      config.orderRecords = config.orderRecords.filter(r => r.student !== student);
+      await reply(event, `✅ 已取消「${student}」的訂單。`, config);
+      return true;
+    }
+
+    // —— 修改訂單 ——
     if (msg.startsWith('修改訂單：')) {
-      console.log('[order] 修改訂單流程啟動');
+      console.log('[order] 修改訂單流程');
       const m = msg.match(/^修改訂單：(.+?)：(.+)$/);
       if (!m) {
-        await reply(event, '⚠️ 格式錯誤，請輸入「修改訂單：學生A：品項＋數量」', config);
+        await reply(event, '⚠️ 格式錯誤，請輸入「修改訂單：學生A：品項＋數量」。', config);
         return true;
       }
       const student = m[1].trim();
       const body    = m[2].trim();
-      console.log('[order] 目標學生：', student, '新內容：', body);
-
-      // 1) 負值抵消舊單
+      // 負值抵消
       const recs = config.orderRecords.filter(r => r.student === student);
       for (const r of recs) {
-        const negItems = r.items.map(i => ({
-          name:  i.name,
-          qty:   -i.qty,
-          price: i.price
-        }));
+        const negItems = r.items.map(i => ({ name: i.name, qty: -i.qty, price: i.price }));
         const negTotal = -r.total;
-        console.log('[order] （修改）發送負值抵消單：', {
-          student,
-          items: negItems,
-          total: negTotal,
-          date:  r.date
-        });
-        await postToSheet(
-          config.SHEETS_WEBAPP_URL,
-          'order',
-          { student, items: negItems, total: negTotal, date: r.date }
-        );
+        await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items: negItems, total: negTotal, date: r.date });
       }
-      // 清除記憶體
       config.orderRecords = config.orderRecords.filter(r => r.student !== student);
-
-      // 2) 下新單
-      const result = await this._processLine(student, body, config);
-      console.log('[order] 修改後新單結果：', result);
-      await reply(event, `✅ 修改訂單完成：\n${result}`, config);
+      // 新單
+      this._processLine(student, body, config).catch(err => console.error('[order] 修改後新單錯誤：', err));
+      await reply(event, '✅ 修改訂單已收到', config);
       return true;
     }
 
-    // —— 一般下訂單 —— 
-    const lines = msg.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-    const orders = lines.filter(l => /^(.+?)：(.+)$/.test(l));
+    // —— 一般下訂單 ——
+    const lines = msg.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const orders = lines.filter(l => /^(.+?)[:：].+/.test(l));
     if (!orders.length) return false;
 
-    console.log('[order] 一般訂單，共', orders.length, '行');
-    const replies = [];
+    console.log('[order] 一般訂單', orders.length, '筆');
+    // 只回覆收到
+    await reply(event, '✅ 訂單已收到', config);
+    // 背後非同步寫入
     for (const l of orders) {
-      const [, student, body] = l.match(/^(.+?)：(.+)$/);
-      replies.push(await this._processLine(student.trim(), body.trim(), config));
+      const [, student, body] = l.match(/^(.+?)[:：](.+)$/);
+      this._processLine(student.trim(), body.trim(), config).catch(err => console.error('[order] 處理訂單錯誤：', err));
     }
-    await reply(event, replies.join('\n'), config);
     return true;
   },
 
-  // 內部：解析一行訂單並發送正值訂單
+  // 內部：解析一行並發送到試算表
   async _processLine(student, rest, config) {
-    // 1) 清理不要、不加
-    const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,]+/g, '').trim();
-    const parts   = cleaned.split(/[＋+、,]/).map(p=>p.trim()).filter(Boolean);
-
-    // 2) 處理每項
+    const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,，。]*/g, '').trim();
+    const parts   = cleaned.split(/[＋+、,，]/).map(p => p.trim()).filter(Boolean);
     const menus   = loadMenu(config.MENU_PATH);
     const items   = [];
     let total     = 0;
@@ -133,24 +95,19 @@ module.exports = {
         vendor = vm[1].trim();
         key    = vm[2].trim();
       }
-      // 數量
       let qty = 1;
       const qm = key.match(/(.+?)x(\d+)$/i);
       if (qm) { key = qm[1]; qty = +qm[2]; }
-      // 大／小 預設 key 即可
       let itemName = key;
-
-      // 益伯特例
-      let price = null;
+      let price    = null;
       if (vendor === '益伯') {
         const r = yiBoParser.parse(key);
-        if (r.price!=null) { itemName = r.itemName; price = r.price; }
+        if (r.price != null) { itemName = r.itemName; price = r.price; }
       }
-      if (price==null) price = menus[vendor]?.[itemName];
-      if (price==null) {
-        const {bestMatch,bestMatchIndex} =
-          stringSimilarity.findBestMatch(itemName, Object.keys(menus[vendor]||{}));
-        if (bestMatch.rating>0.6) {
+      if (price == null) price = menus[vendor]?.[itemName];
+      if (price == null) {
+        const { bestMatch, bestMatchIndex } = stringSimilarity.findBestMatch(itemName, Object.keys(menus[vendor]||{}));
+        if (bestMatch.rating > 0.6) {
           itemName = Object.keys(menus[vendor])[bestMatchIndex];
           price    = menus[vendor][itemName];
         }
@@ -161,20 +118,12 @@ module.exports = {
     }
 
     if (missing.length) {
-      return `⚠️ ${student}：找不到 ${missing.join('、')}`;
+      console.warn('[order] 找不到項目：', missing);
+      // 這裡直接忽略或另行記錄
     }
 
-    // 3) 發送正值訂單
     const date = new Date().toISOString();
-    console.log('[order] 發送正值訂單：', { student, items, total, date });
     config.orderRecords.push({ student, items, total, date });
-
-    await postToSheet(
-      config.SHEETS_WEBAPP_URL,
-      'order',
-      { student, items, total, date }
-    );
-    const detail = items.map(i=>`${i.name} x${i.qty}($${i.price})`).join(' + ');
-    return `✅ ${student}：${detail}，共 $${total}`;
+    await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items, total, date });
   }
 };
