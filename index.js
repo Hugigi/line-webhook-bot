@@ -36,7 +36,6 @@ app.use(express.json({
 
 // 4️⃣ 健康檢查
 app.get('/health', (req, res) => {
-  console.log('🟢 Health Check');
   res.status(200).send('OK');
 });
 
