@@ -30,8 +30,10 @@ module.exports = {
         await reply(event, `⚠️ 找不到「${student}」的訂單`, config);
         return true;
       }
+      console.log('[order] Cancel payloads:');
       const tasks = recs.map(r => {
         const negItems = r.items.map(i => ({ vendor: i.vendor, name: i.name, qty: -i.qty, price: i.price }));
+        console.log('[order] 送出負值抵消：', { student, items: negItems, total: -r.total, date: r.date });
         return postToSheet(
           config.SHEETS_WEBAPP_URL,
           'order',
@@ -40,8 +42,9 @@ module.exports = {
       });
       try {
         await Promise.all(tasks);
+        console.log('[order] 負值抵消完成，tasks:', tasks.length);
       } catch (err) {
-        console.error(err);
+        console.error('[order] cancel 發生錯誤', err);
         await reply(event, `❌ 系統錯誤：${err.message}`, config);
         return true;
       }
@@ -59,10 +62,12 @@ module.exports = {
       }
       const [, rawStudent, body] = m;
       const student = rawStudent.trim();
-      // 先抵消舊單
+      // 抵消舊單
       const recs = config.orderRecords.filter(r => normalize(r.student) === normalize(student));
-      const tasks = recs.map(r => {
+      console.log('[order] 修改訂單抵消舊單 payloads:');
+      const cancelTasks = recs.map(r => {
         const negItems = r.items.map(i => ({ vendor: i.vendor, name: i.name, qty: -i.qty, price: i.price }));
+        console.log('[order] 送出負值抵消：', { student, items: negItems, total: -r.total, date: r.date });
         return postToSheet(
           config.SHEETS_WEBAPP_URL,
           'order',
@@ -70,32 +75,49 @@ module.exports = {
         );
       });
       try {
-        await Promise.all(tasks);
+        await Promise.all(cancelTasks);
+        console.log('[order] 抵消完成，cancelTasks:', cancelTasks.length);
       } catch (err) {
-        console.error(err);
+        console.error('[order] 修改抵消錯誤', err);
         await reply(event, `❌ 系統錯誤：${err.message}`, config);
         return true;
       }
       config.orderRecords = config.orderRecords.filter(r => normalize(r.student) !== normalize(student));
       // 下新單
-      const result = await this._processLine(student, body.trim(), config);
-      await reply(event, `✅ 修改訂單完成：\n${result}`, config);
+      try {
+        const res = await this._processLine(student, body.trim(), config);
+        await reply(event, `✅ 修改訂單完成：\n${res}`, config);
+      } catch (err) {
+        console.error('[order] 修改新單錯誤', err);
+        await reply(event, `⚠️ ${student}：訂單錯誤，請重新確認`, config);
+      }
       return true;
     }
 
     // —— 一般下訂單 ——
     const lines = msg.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const orders = lines.filter(l => /^(.+?)[:：](.+)$/.test(l));
+    const pattern = /^(.+?)[:：](.+)$/;
+    const orders = lines.filter(l => pattern.test(l));
     if (!orders.length) return false;
 
     const replies = [];
     for (const l of orders) {
-      const [, student, body] = l.match(/^(.+?)[:：](.+)$/);
+      const [, student, body] = l.match(pattern);
+      // 偵測上一筆相同
+      const last = config.orderRecords.slice(-1)[0];
+      if (last && normalize(last.student) === normalize(student) && last.rawBody === body.trim()) {
+        replies.push(`⚠️ ${student}：偵測到相同的訂單「${body.trim()}」，請確認是否要重複下單。`);
+        continue;
+      }
       try {
         const res = await this._processLine(student.trim(), body.trim(), config);
+        // 保存 rawBody 以供下次偵測
+        if (config.orderRecords.length) {
+          config.orderRecords[config.orderRecords.length - 1].rawBody = body.trim();
+        }
         replies.push(res);
       } catch (err) {
-        console.error(err);
+        console.error('[order] 一般下單錯誤', err);
         replies.push(`⚠️ ${student.trim()}：訂單錯誤，請重新確認`);
       }
     }
@@ -149,9 +171,7 @@ module.exports = {
       if (price == null) {
         for (const v of Object.keys(menus)) {
           if (menus[v][itemName] != null) {
-            vendor = v;
-            price = menus[v][itemName];
-            break;
+            vendor = v; price = menus[v][itemName]; break;
           }
         }
       }
@@ -169,10 +189,10 @@ module.exports = {
       throw new Error(`找不到 ${missing.join('、')}`);
     }
 
-    // 使用 ISO 時間字串
     const date = new Date().toISOString();
     config.orderRecords.push({ student, items, total, date });
 
+    console.log('[order] 正值下單 payload:', { student, items, total, date });
     await postToSheet(
       config.SHEETS_WEBAPP_URL,
       'order',
