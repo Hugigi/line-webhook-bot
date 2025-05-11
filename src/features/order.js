@@ -177,7 +177,7 @@ module.exports = {
       return `⚠️ ${student}：找不到 ${missing.join('、')}`;
     }
 
-    const date = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+    const date = new Date().toISOString();
     config.orderRecords.push({ student, items, total, date });
 
     // 發送正值訂單，並標示 type
