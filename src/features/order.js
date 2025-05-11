@@ -1,185 +1,129 @@
-// src/features/order.js
-const stringSimilarity = require('string-similarity');
-const { reply, postToSheet, loadMenu } = require('../utils');
+/**
+ * Code.gs (Apps Script)
+ */
 
-// Helper: normalize student names
-const normalize = str => str.trim().toLowerCase();
+const SHEET_ID        = '1ETXPm2LMgrCikHGNEJvn-2gW7E6sNEvZ8NWsHHiflrg';
+const DAILY_SHEET     = '善化';
+const AGGREGATE_SHEET = '善化彙整';
 
-module.exports = {
-  name: 'order',
-
-  async handle(event, config) {
-    const msg = event.message.text.trim();
-    console.log('[order] 收到訊息：', msg);
-
-    // —— 切換店家 ——
-    const switchMatch = msg.match(/^切換店家[:：]\s*(.+)$/);
-    if (switchMatch) {
-      const vendor = switchMatch[1].trim();
-      config.currentVendor = vendor;
-      console.log('[order] 已切換至店家：', vendor);
-      await reply(event, `✅ 已切換至「${vendor}」`, config);
-      return true;
-    }
-
-    // —— 取消訂單 ——
-    if (/^取消訂單[:：]/.test(msg)) {
-      const student = msg.replace(/^取消訂單[:：]/, '').trim();
-      const recs = config.orderRecords.filter(r => normalize(r.student) === normalize(student));
-      if (!recs.length) {
-        await reply(event, `⚠️ 找不到「${student}」的訂單`, config);
-        return true;
-      }
-      const tasks = recs.map(r => {
-        const negItems = r.items.map(i => ({ vendor: i.vendor, name: i.name, qty: -i.qty, price: i.price }));
-        return postToSheet(
-          config.SHEETS_WEBAPP_URL,
-          'order',
-          { type: 'cancel', student, items: negItems, total: -r.total, date: r.date }
-        );
-      });
-      try {
-        await Promise.all(tasks);
-      } catch (err) {
-        console.error(err);
-        await reply(event, `❌ 系統錯誤：${err.message}`, config);
-        return true;
-      }
-      config.orderRecords = config.orderRecords.filter(r => normalize(r.student) !== normalize(student));
-      await reply(event, `✅ 已取消「${student}」的 ${recs.length} 筆訂單`, config);
-      return true;
-    }
-
-    // —— 修改訂單 ——
-    if (/^修改訂單[:：]/.test(msg)) {
-      const m = msg.match(/^修改訂單[:：](.+?)[:：](.+)$/);
-      if (!m) {
-        await reply(event, '⚠️ 格式錯誤，請輸入「修改訂單：學生A：品項＋數量」', config);
-        return true;
-      }
-      const [, rawStudent, body] = m;
-      const student = rawStudent.trim();
-      // 先抵消舊單
-      const recs = config.orderRecords.filter(r => normalize(r.student) === normalize(student));
-      const tasks = recs.map(r => {
-        const negItems = r.items.map(i => ({ vendor: i.vendor, name: i.name, qty: -i.qty, price: i.price }));
-        return postToSheet(
-          config.SHEETS_WEBAPP_URL,
-          'order',
-          { type: 'cancel', student, items: negItems, total: -r.total, date: r.date }
-        );
-      });
-      try {
-        await Promise.all(tasks);
-      } catch (err) {
-        console.error(err);
-        await reply(event, `❌ 系統錯誤：${err.message}`, config);
-        return true;
-      }
-      config.orderRecords = config.orderRecords.filter(r => normalize(r.student) !== normalize(student));
-      // 下新單
-      const result = await this._processLine(student, body.trim(), config);
-      await reply(event, `✅ 修改訂單完成：\n${result}`, config);
-      return true;
-    }
-
-    // —— 一般下訂單 ——
-    const lines = msg.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const orders = lines.filter(l => /^(.+?)[:：](.+)$/.test(l));
-    if (!orders.length) return false;
-
-    const replies = [];
-    for (const l of orders) {
-      const [, student, body] = l.match(/^(.+?)[:：](.+)$/);
-      try {
-        const res = await this._processLine(student.trim(), body.trim(), config);
-        replies.push(res);
-      } catch (err) {
-        console.error(err);
-        replies.push(`⚠️ ${student.trim()}：訂單錯誤，請重新確認`);
-      }
-    }
-
-    await reply(event, replies.join('\n'), config);
-    return true;
-  },
-
-  // 內部：解析一行訂單並發送正值訂單
-  async _processLine(student, rest, config) {
-    const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,]+/g, '').trim();
-    const parts = cleaned.split(/[＋+、,]/).map(p => p.trim()).filter(Boolean);
-    const menus = loadMenu(config.MENU_PATH);
-    const items = [];
-    let total = 0;
-    const missing = [];
-
-    for (let raw of parts) {
-      let vendor = config.currentVendor;
-      let key = raw;
-      const vm = raw.match(/^(.+?)-(.+)$/);
-      if (vm && menus[vm[1].trim()]) {
-        vendor = vm[1].trim();
-        key = vm[2].trim();
-      }
-
-      // 數量解析
-      let qty = 1;
-      const qm = key.match(/(.+?)x(\d+)$/i);
-      if (qm) {
-        key = qm[1];
-        qty = +qm[2];
-      }
-
-      let itemName = key;
-      let price = menus[vendor]?.[itemName];
-
-      // 模糊比對
-      if (price == null) {
-        const keys = Object.keys(menus[vendor] || {});
-        if (keys.length) {
-          const { bestMatch, bestMatchIndex } = stringSimilarity.findBestMatch(itemName, keys);
-          if (bestMatch.rating > 0.6) {
-            itemName = keys[bestMatchIndex];
-            price = menus[vendor][itemName];
-          }
-        }
-      }
-
-      // 跨店家自動匹配
-      if (price == null) {
-        for (const v of Object.keys(menus)) {
-          if (menus[v][itemName] != null) {
-            vendor = v;
-            price = menus[v][itemName];
-            break;
-          }
-        }
-      }
-
-      if (price == null) {
-        missing.push(raw);
-        continue;
-      }
-
-      items.push({ vendor, name: itemName, qty, price });
-      total += price * qty;
-    }
-
-    if (missing.length) {
-      throw new Error(`找不到 ${missing.join('、')}`);
-    }
-
-    // 使用 ISO 時間字串
-    const date = new Date().toISOString();
-    config.orderRecords.push({ student, items, total, date });
-
-    await postToSheet(
-      config.SHEETS_WEBAPP_URL,
-      'order',
-      { type: 'order', student, items, total, date }
-    );
-
-    const detail = items.map(i => `${i.vendor}-${i.name} x${i.qty}($${i.price})`).join(' + ');
-    return `✅ ${student}：${detail}，共 $${total}`;
+/**
+ * doPost(e)：接收 Bot POST，執行 order / cancel / prepaid，並更新該生彙整
+ */
+function doPost(e) {
+  console.log('▶️ doPost payload:', e.postData.contents);
+  let params;
+  try {
+    params = JSON.parse(e.postData.contents);
+  } catch (err) {
+    console.error('❌ JSON.parse 失敗', err);
+    return _errorResponse('invalid JSON');
   }
-};
+
+  const ss    = SpreadsheetApp.openById(SHEET_ID);
+  const daily = ss.getSheetByName(DAILY_SHEET);
+  const agg   = ss.getSheetByName(AGGREGATE_SHEET);
+  if (!daily || !agg) {
+    console.error('❌ 找不到分頁');
+    return _errorResponse('sheet not found');
+  }
+
+  try {
+    // 單筆訂單
+    if (params.type === 'order') {
+      console.log('→ 處理單筆 order:', params.student);
+      const dateObj   = params.date ? new Date(params.date) : new Date();
+      const formatted = Utilities.formatDate(dateObj, 'GMT+8', 'yyyy/MM/dd HH:mm:ss');
+      const row = [
+        formatted,
+        params.student,
+        params.items.map(i => `[${i.name}]x${i.qty}($${i.price})`).join(' + '),
+        params.total
+      ];
+      const lock = LockService.getScriptLock();
+      lock.waitLock(30000);
+      try {
+        daily.appendRow(row);
+        console.log(`✅ 已 appendRow 訂單到 ${DAILY_SHEET}`, row);
+      } finally {
+        lock.releaseLock();
+      }
+      updateStudentAggregate(params.student);
+      return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 取消訂單（負值抵消）
+    else if (params.type === 'cancel') {
+      console.log('→ 處理 cancel (負值抵銷):', params.student);
+      const dateObj   = params.date ? new Date(params.date) : new Date();
+      const formatted = Utilities.formatDate(dateObj, 'GMT+8', 'yyyy/MM/dd HH:mm:ss');
+      const row = [
+        formatted,
+        params.student,
+        params.items.map(i => `[${i.name}]x${i.qty}($${i.price})`).join(' + '),
+        params.total
+      ];
+      const lock = LockService.getScriptLock();
+      lock.waitLock(30000);
+      try {
+        daily.appendRow(row);
+        console.log(`✅ 已 append cancel offset 到 ${DAILY_SHEET}`, row);
+      } finally {
+        lock.releaseLock();
+      }
+      updateStudentAggregate(params.student);
+      return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 預收款
+    else if (params.type === 'prepaid') {
+      console.log('→ 處理 prepaid:', params.student, params.amount);
+      const student = String(params.student).trim();
+      const amount  = Number(params.amount) || 0;
+      const lr      = agg.getLastRow();
+      const names   = lr > 1 ? agg.getRange(2, 1, lr - 1, 1).getValues().flat() : [];
+      const idx     = names.indexOf(student);
+      if (idx >= 0) {
+        agg.getRange(idx + 2, 3).setValue(amount);
+        console.log(`✅ 更新預收：${student} C欄 = ${amount}`);
+      } else {
+        agg.appendRow([student, '', amount, '', '']);
+        console.log(`✅ 新增預收：${student}, C = ${amount}`);
+      }
+      updateStudentAggregate(student);
+      return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 不支援的 type
+    else {
+      console.error('❌ 不支援的 type:', params.type);
+      return _errorResponse('unsupported type');
+    }
+  } catch (err) {
+    console.error('❌ doPost 處理失敗', err);
+    return _errorResponse('processing error');
+  }
+}
+
+/**
+ * doGet(e)：支援 recalc / expense / balance
+ */
+function doGet(e) {
+  const action = e.parameter.action;
+  const ss     = SpreadsheetApp.openById(SHEET_ID);
+  const sh     = ss.getSheetByName(AGGREGATE_SHEET);
+
+  if (action === 'recalc') {
+    recalcAllAggregate();
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok' })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (!sh || sh.getLastRow() < 2) {
+    return ContentService.createTextOutput('[]').setMimeType(ContentService.MimeType.JSON);
+  }
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
+  const out  = data.map(r => ({ student: r[0], value: action === 'balance' ? r[4] : r[3] }));
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// 以下函式保持不變：
+// recalcAllAggregate, updateStudentAggregate, _errorResponse

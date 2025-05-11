@@ -2,12 +2,12 @@
 // 味道食堂 原始菜單資料
 module.exports = {
   noodles: {
-    '古早味肉燥麵':    { large: 55, small: 45 },
+    '肉燥乾麵':        { large: 55, small: 45 },
     '醇香芝麻麵':      { large: 60, small: 50 },
     '麻辣乾拌麵':      { large: 60, small: 50 },
     '榨菜肉絲麵':      { large: 70, small: 60 },
     '胚芽餛飩麵':      { large: 70, small: 60 },
-    '古早味肉燥湯麵':  { large: 55, small: 45 },
+    '肉燥湯麵':        { large: 55, small: 45 },
     '榨菜肉絲湯麵':    { large: 70, small: 60 },
     '胚芽餛飩湯麵':    { large: 70, small: 60 }
   },
