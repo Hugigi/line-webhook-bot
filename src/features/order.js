@@ -93,101 +93,113 @@ module.exports = {
       return true;
     }
 
-    // —— 一般下訂單 ——
-    const lines = msg.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const orders = lines.filter(l => /^(.+?)[:：](.+)$/.test(l));
+    // —— 一般下訂單 —— 
+    const lines   = msg.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const pattern = /^(.+?)\s*[:：]\s*(.+)$/;
+    const orders  = lines.filter(l => pattern.test(l));
     if (!orders.length) return false;
 
-    const replies = await Promise.all(orders.map(async l => {
-      const [, student, body] = l.match(/^(.+?)[:：](.+)$/);
-      try {
-        return await this._processLine(student.trim(), body.trim(), config);
-      } catch (e) {
-        console.error(e);
-        return `⚠️ ${student.trim()}：訂單錯誤，請重新確認`;
-      }
-    }));
+    const ordersPayload = [];
+    const replies       = [];
 
-    await reply(event, replies.join('\n'), config);
-    return true;
+    for (const l of orders) {
+      const [, student, body] = l.match(pattern);
+      try {
+        // buildOrderPayload 會跑清洗、匹配、模糊比對、計算 items & total
+        const payload = await this._buildOrderPayload(student.trim(), body.trim(), config);
+        ordersPayload.push(payload);
+
+       const detail = payload.items
+         .map(i => `${i.vendor}-${i.name} x${i.qty}($${i.price})`)
+         .join(' + ');
+        replies.push(`✅ ${payload.student}：${detail}，共 $${payload.total}`);
+      } catch (err) {
+       console.error(err);
+       replies.push(`⚠️ ${student.trim()}：訂單錯誤，請重新確認`);
+      }
+    }
+
+// 一次性傳整包到後端，避免 race condition
+await postToSheet(
+  config.SHEETS_WEBAPP_URL,
+  'order',
+  { type: 'bulkOrder', orders: ordersPayload }
+);
+
+await reply(event, replies.join('\n'), config);
+return true;
+
   },
 
-  // 內部：解析一行訂單並發送正值訂單
-  async _processLine(student, rest, config) {
-    const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,]+/g, '').trim();
-    const parts = cleaned.split(/[＋+、,]/).map(p => p.trim()).filter(Boolean);
-    const menus = loadMenu(config.MENU_PATH);
-    const items = [];
-    let total = 0;
-    const missing = [];
+  // 內部：組建訂單 payload（含清洗、模糊比對、跨店家、計算 total）
+async _buildOrderPayload(student, rest, config) {
+  const cleaned = rest.replace(/(?:不?加|不要)[^＋+、,]+/g, '').trim();
+  const parts   = cleaned.split(/[＋+、,]/).map(p => p.trim()).filter(Boolean);
+  const menus   = loadMenu(config.MENU_PATH);
+  const items   = [];
+  let total     = 0;
+  const missing = [];
 
-    for (let raw of parts) {
-      let vendor = config.currentVendor;
-      let key = raw;
-      const vm = raw.match(/^(.+?)-(.+)$/);
-      if (vm && menus[vm[1].trim()]) {
-        vendor = vm[1].trim();
-        key = vm[2].trim();
-      }
-
-      // 數量解析
-      let qty = 1;
-      const qm = key.match(/(.+?)x(\d+)$/i);
-      if (qm) {
-        key = qm[1];
-        qty = +qm[2];
-      }
-
-      let itemName = key;
-      let price = menus[vendor]?.[itemName];
-
-      // 模糊比對
-      if (price == null) {
-        const keys = Object.keys(menus[vendor] || {});
-        if (keys.length) {
-          const { bestMatch, bestMatchIndex } = stringSimilarity.findBestMatch(itemName, keys);
-          if (bestMatch.rating > 0.6) {
-            itemName = keys[bestMatchIndex];
-            price = menus[vendor][itemName];
-          }
-        }
-      }
-
-      // 跨店家自動匹配
-      if (price == null) {
-        for (const v of Object.keys(menus)) {
-          if (menus[v][itemName] != null) {
-            vendor = v;
-            price = menus[v][itemName];
-            break;
-          }
-        }
-      }
-
-      if (price == null) {
-        missing.push(raw);
-        continue;
-      }
-
-      items.push({ vendor, name: itemName, qty, price });
-      total += price * qty;
+  for (let raw of parts) {
+    let vendor = config.currentVendor;
+    let key    = raw;
+    const vm   = raw.match(/^(.+?)-(.+)$/);
+    if (vm && menus[vm[1].trim()]) {
+      vendor = vm[1].trim();
+      key    = vm[2].trim();
     }
 
-    if (missing.length) {
-      return `⚠️ ${student}：找不到 ${missing.join('、')}`;
+    // 數量解析
+    let qty = 1;
+    const qm = key.match(/(.+?)x(\d+)$/i);
+    if (qm) {
+      key = qm[1];
+      qty = +qm[2];
     }
 
-    const date = new Date().toISOString();
-    config.orderRecords.push({ student, items, total, date });
+    let itemName = key;
+    let price    = menus[vendor]?.[itemName];
 
-    // 發送正值訂單，並標示 type
-    await postToSheet(
-      config.SHEETS_WEBAPP_URL,
-      'order',
-      { type: 'order', student, items, total, date }
-    );
+    // **模糊比對**（保留原邏輯）
+    if (price == null) {
+      const keys = Object.keys(menus[vendor] || {});
+      if (keys.length) {
+        const { bestMatch, bestMatchIndex } =
+          stringSimilarity.findBestMatch(itemName, keys);
+        if (bestMatch.rating > 0.6) {
+          itemName = keys[bestMatchIndex];
+          price    = menus[vendor][itemName];
+        }
+      }
+    }
 
-    const detail = items.map(i => `${i.vendor}-${i.name} x${i.qty}($${i.price})`).join(' + ');
-    return `✅ ${student}：${detail}，共 $${total}`;
+    // 跨店家自動匹配
+    if (price == null) {
+      for (const v of Object.keys(menus)) {
+        if (menus[v][itemName] != null) {
+          vendor = v;
+          price  = menus[v][itemName];
+          break;
+        }
+      }
+    }
+
+    if (price == null) {
+      missing.push(raw);
+      continue;
+    }
+
+    items.push({ vendor, name: itemName, qty, price });
+    total += price * qty;
   }
+
+  if (missing.length) {
+    throw new Error(`找不到 ${missing.join('、')}`);
+  }
+
+  // 回傳 ISO 時間字串，讓 Apps Script 正確解析
+  const date = new Date().toISOString();
+  return { student, items, total, date };
+},
+
 };
