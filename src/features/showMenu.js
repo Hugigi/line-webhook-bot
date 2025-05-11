@@ -17,7 +17,6 @@ module.exports = {
     const m = msg.match(/^([^\s]+?)(的)?菜單$/);
 
     if (!m) {
-      console.log(`🛑 指令格式錯誤，不進行菜單顯示`);
       return false;
     }
 

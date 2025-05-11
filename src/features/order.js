@@ -33,9 +33,16 @@ module.exports = {
       // 批次負值抵消
       const tasks = recs.map(r => {
         const negItems = r.items.map(i => ({ vendor: i.vendor, name: i.name, qty: -i.qty, price: i.price }));
-        return postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items: negItems, total: -r.total, date: r.date });
+        const negTotal = -r.total;
+        return postToSheet(
+          config.SHEETS_WEBAPP_URL,
+          'order',
+          { type: 'cancel', student, items: negItems, total: negTotal, date: r.date }
+        );
       });
-      try { await Promise.all(tasks); } catch (e) {
+      try {
+        await Promise.all(tasks);
+      } catch (e) {
         console.error(e);
         await reply(event, `❌ 系統錯誤：${e.message}`, config);
         return true;
@@ -54,22 +61,34 @@ module.exports = {
       }
       const [_, stu, body] = m;
       const student = stu.trim();
-      const recs = config.orderRecords.filter(r => normalize(r.student) === normalize(student));
       // 抵消舊單
+      const recs = config.orderRecords.filter(r => normalize(r.student) === normalize(student));
       const tasks = recs.map(r => {
         const negItems = r.items.map(i => ({ vendor: i.vendor, name: i.name, qty: -i.qty, price: i.price }));
-        return postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items: negItems, total: -r.total, date: r.date });
+        const negTotal = -r.total;
+        return postToSheet(
+          config.SHEETS_WEBAPP_URL,
+          'order',
+          { type: 'cancel', student, items: negItems, total: negTotal, date: r.date }
+        );
       });
-      try { await Promise.all(tasks); } catch (e) {
+      try {
+        await Promise.all(tasks);
+      } catch (e) {
         console.error(e);
         await reply(event, `❌ 系統錯誤：${e.message}`, config);
         return true;
       }
       config.orderRecords = config.orderRecords.filter(r => normalize(r.student) !== normalize(student));
-      // 新單
+      // 下新單
       let result;
-      try { result = await this._processLine(student, body.trim(), config); }
-      catch (e) { console.error(e); await reply(event, `❌ 系統錯誤：${e.message}`, config); return true; }
+      try {
+        result = await this._processLine(student, body.trim(), config);
+      } catch (e) {
+        console.error(e);
+        await reply(event, `❌ 系統錯誤：${e.message}`, config);
+        return true;
+      }
       await reply(event, `✅ 修改訂單完成：\n${result}`, config);
       return true;
     }
@@ -81,8 +100,12 @@ module.exports = {
 
     const replies = await Promise.all(orders.map(async l => {
       const [, student, body] = l.match(/^(.+?)[:：](.+)$/);
-      try { return await this._processLine(student.trim(), body.trim(), config); }
-      catch (e) { console.error(e); return `⚠️ ${student.trim()}：訂單錯誤，請重新確認`; }
+      try {
+        return await this._processLine(student.trim(), body.trim(), config);
+      } catch (e) {
+        console.error(e);
+        return `⚠️ ${student.trim()}：訂單錯誤，請重新確認`;
+      }
     }));
 
     await reply(event, replies.join('\n'), config);
@@ -102,12 +125,18 @@ module.exports = {
       let vendor = config.currentVendor;
       let key = raw;
       const vm = raw.match(/^(.+?)-(.+)$/);
-      if (vm && menus[vm[1].trim()]) { vendor = vm[1].trim(); key = vm[2].trim(); }
+      if (vm && menus[vm[1].trim()]) {
+        vendor = vm[1].trim();
+        key = vm[2].trim();
+      }
 
       // 數量解析
       let qty = 1;
       const qm = key.match(/(.+?)x(\d+)$/i);
-      if (qm) { key = qm[1]; qty = +qm[2]; }
+      if (qm) {
+        key = qm[1];
+        qty = +qm[2];
+      }
 
       let itemName = key;
       let price = menus[vendor]?.[itemName];
@@ -135,18 +164,28 @@ module.exports = {
         }
       }
 
-      if (price == null) { missing.push(raw); continue; }
+      if (price == null) {
+        missing.push(raw);
+        continue;
+      }
 
       items.push({ vendor, name: itemName, qty, price });
       total += price * qty;
     }
 
-    if (missing.length) return `⚠️ ${student}：找不到 ${missing.join('、')}`;
+    if (missing.length) {
+      return `⚠️ ${student}：找不到 ${missing.join('、')}`;
+    }
 
     const date = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
     config.orderRecords.push({ student, items, total, date });
 
-    await postToSheet(config.SHEETS_WEBAPP_URL, 'order', { student, items, total, date });
+    // 發送正值訂單，並標示 type
+    await postToSheet(
+      config.SHEETS_WEBAPP_URL,
+      'order',
+      { type: 'order', student, items, total, date }
+    );
 
     const detail = items.map(i => `${i.vendor}-${i.name} x${i.qty}($${i.price})`).join(' + ');
     return `✅ ${student}：${detail}，共 $${total}`;
