@@ -120,6 +120,10 @@ module.exports = {
     }
 
 // 一次性傳整包到後端，避免 race condition
+console.log('[order] bulkOrder payload:', JSON.stringify({
+   type: 'bulkOrder',
+   orders: ordersPayload
+}));
 await postToSheet(
   config.SHEETS_WEBAPP_URL,
   'order',
